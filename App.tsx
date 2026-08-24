@@ -12,6 +12,7 @@ import AlertsScreen from './src/screens/AlertsScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import AuthScreen from './src/screens/AuthScreen';
 import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
+import OnboardingScreen from './src/screens/OnboardingScreen';
 
 type Tab = 'home' | 'trends' | 'alerts' | 'settings';
 
@@ -37,12 +38,12 @@ function TabBar({ active, onSelect }: { active: Tab; onSelect: (t: Tab) => void 
   );
 }
 
-type AuthView = 'auth' | 'forgotPassword';
+type AuthView = 'onboarding' | 'auth' | 'forgotPassword';
 
 function AppContent() {
   const [ready, setReady] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('home');
-  const [authView, setAuthView] = useState<AuthView | null>('auth');
+  const [authView, setAuthView] = useState<AuthView | null>('onboarding');
 
   useEffect(() => {
     Font.loadAsync({
@@ -63,7 +64,9 @@ function AppContent() {
   return (
     <View style={styles.root}>
       <StatusBar style="dark" />
-      {authView === 'auth' ? (
+      {authView === 'onboarding' ? (
+        <OnboardingScreen onLogin={() => setAuthView('auth')} onRegister={() => setAuthView('auth')} />
+      ) : authView === 'auth' ? (
         <AuthScreen onLogin={() => setAuthView(null)} onForgotPassword={() => setAuthView('forgotPassword')} />
       ) : authView === 'forgotPassword' ? (
         <ForgotPasswordScreen onBack={() => setAuthView('auth')} onLogin={() => setAuthView('auth')} />
@@ -73,7 +76,7 @@ function AppContent() {
             {activeTab === 'home' && <HomeScreen />}
             {activeTab === 'trends' && <TrendsScreen />}
             {activeTab === 'alerts' && <AlertsScreen />}
-            {activeTab === 'settings' && <SettingsScreen onLogout={() => setAuthView('auth')} />}
+            {activeTab === 'settings' &&             <SettingsScreen onLogout={() => setAuthView('onboarding')} />}
           </View>
           <TabBar active={activeTab} onSelect={setActiveTab} />
         </>
