@@ -1,0 +1,15 @@
+export const palette = {
+  brand: '#2E7DC9',
+  brandDeep: '#134D77',
+  ink: '#16211E',
+  paper: '#F7FAF8',
+  good: '#3FB65F',
+  moderate: '#E8B93F',
+  unhealthy: '#E8703F',
+  hazardous: '#8E4FE0',
+  surface: '#F1F7FB',
+  surfaceDeep: '#EAF4FC',
+  text: '#5E6E70',
+  textStrong: '#1E293B',
+  border: '#DCE6DE',
+};
