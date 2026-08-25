@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 import { palette } from '../styles/palette';
 import EditThresholdsScreen from './EditThresholdsScreen';
+import { getDeviceInfo, getThresholds, appVersion, buildNumber } from '../data';
 
 function ThresholdRow({ label, range, value }: { label: string; range: string; value: number }) {
   return (
@@ -22,12 +22,15 @@ function ThresholdRow({ label, range, value }: { label: string; range: string; v
   );
 }
 
-export default function SettingsScreen({ onLogout }: { onLogout: () => void }) {
+export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const [pushAlerts, setPushAlerts] = useState(true);
   const [dailySummary, setDailySummary] = useState(true);
   const [autoPurifier, setAutoPurifier] = useState(false);
   const [editing, setEditing] = useState(false);
+
+  const device = getDeviceInfo();
+  const thresholds = getThresholds();
 
   if (editing) return <EditThresholdsScreen onBack={() => setEditing(false)} />;
 
@@ -40,26 +43,26 @@ export default function SettingsScreen({ onLogout }: { onLogout: () => void }) {
         <View style={styles.deviceCard}>
           <View style={styles.deviceTop}>
             <View>
-              <Text style={styles.deviceName}>AirSafe Node 01</Text>
-              <Text style={styles.deviceSub}>ESP32-WROOM · Room 204</Text>
+              <Text style={styles.deviceName}>{device.name}</Text>
+              <Text style={styles.deviceSub}>{device.model} · {device.location}</Text>
             </View>
             <View style={styles.liveBadge}>
               <View style={styles.liveDot} />
-              <Text style={styles.liveText}>LIVE</Text>
+              <Text style={styles.liveText}>{device.status.toUpperCase()}</Text>
             </View>
           </View>
           <View style={styles.deviceStats}>
             <View style={styles.stat}>
-              <Text style={styles.statValue}>−52 dBm</Text>
-              <Text style={styles.statLabel}>WI-FI SIGNAL</Text>
+              <Text style={styles.statValue}>{device.sensors.find(s => s.type === 'temperature')?.value || 0}°C</Text>
+              <Text style={styles.statLabel}>TEMPERATURE</Text>
             </View>
             <View style={styles.stat}>
-              <Text style={styles.statValue}>2s</Text>
-              <Text style={styles.statLabel}>SYNC LATENCY</Text>
+              <Text style={styles.statValue}>{device.sensors.find(s => s.type === 'humidity')?.value || 0}%</Text>
+              <Text style={styles.statLabel}>HUMIDITY</Text>
             </View>
             <View style={styles.stat}>
-              <Text style={styles.statValue}>99.4%</Text>
-              <Text style={styles.statLabel}>UPTIME (7D)</Text>
+              <Text style={styles.statValue}>{device.sensors.find(s => s.type === 'co2')?.value || 0} ppm</Text>
+              <Text style={styles.statLabel}>CO₂</Text>
             </View>
           </View>
         </View>
@@ -72,9 +75,10 @@ export default function SettingsScreen({ onLogout }: { onLogout: () => void }) {
         </View>
 
         <View style={styles.card}>
-          <ThresholdRow label="PM2.5" range="0–35 µg/m³" value={0.65} />
-          <ThresholdRow label="CO₂" range="400–1000 ppm" value={0.45} />
-          <ThresholdRow label="VOC Index" range="0–250 idx" value={0.28} />
+          <ThresholdRow label="PM2.5" range={`${thresholds.pm25.warning}–${thresholds.pm25.unhealthy} µg/m³`} value={thresholds.pm25.warning / thresholds.pm25.critical} />
+          <ThresholdRow label="PM10" range={`${thresholds.pm10.warning}–${thresholds.pm10.unhealthy} µg/m³`} value={thresholds.pm10.warning / thresholds.pm10.critical} />
+          <ThresholdRow label="CO₂" range={`${thresholds.co2.warning}–${thresholds.co2.unhealthy} ppm`} value={thresholds.co2.warning / thresholds.co2.critical} />
+          <ThresholdRow label="VOC" range={`${thresholds.voc.warning}–${thresholds.voc.unhealthy} idx`} value={thresholds.voc.warning / thresholds.voc.critical} />
         </View>
 
         <Text style={styles.sectionTitleSingle}>Notifications</Text>
@@ -105,64 +109,7 @@ export default function SettingsScreen({ onLogout }: { onLogout: () => void }) {
           </View>
         </View>
 
-        <Text style={styles.sectionTitleSingle}>Account</Text>
-
-        <View style={styles.card}>
-          <View style={styles.accountTop}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>RJ</Text>
-            </View>
-            <View style={styles.accountInfo}>
-              <Text style={styles.accountName}>RJ Dela Cruz</Text>
-              <Text style={styles.accountEmail}>rj@emb.gov.ph</Text>
-            </View>
-            <Pressable style={styles.editProfileBtn}>
-              <Text style={styles.editProfileText}>Edit</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.divider} />
-
-          <Pressable style={styles.accountRow}>
-            <View style={styles.accountRowLeft}>
-              <View style={styles.accountIcon}>
-                <Ionicons name="lock-closed-outline" size={16} color={palette.textStrong} />
-              </View>
-              <Text style={styles.accountRowLabel}>Password & security</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={palette.text} />
-          </Pressable>
-
-          <Pressable style={styles.accountRow}>
-            <View style={styles.accountRowLeft}>
-              <View style={styles.accountIcon}>
-                <Ionicons name="notifications-outline" size={16} color={palette.textStrong} />
-              </View>
-              <Text style={styles.accountRowLabel}>Manage notifications</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={palette.text} />
-          </Pressable>
-
-          <Pressable
-            style={styles.accountRow}
-            onPress={() =>
-              Alert.alert('Log out', 'Are you sure you want to log out?', [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Log out', style: 'destructive', onPress: onLogout },
-              ])
-            }
-          >
-            <View style={styles.accountRowLeft}>
-              <View style={[styles.accountIcon, styles.accountIconDanger]}>
-                <Ionicons name="log-out-outline" size={16} color={palette.unhealthy} />
-              </View>
-              <Text style={[styles.accountRowLabel, styles.logoutText]}>Log out</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={palette.unhealthy} />
-          </Pressable>
-        </View>
-
-        <Text style={styles.versionText}>AirSafe v1.0.0</Text>
+        <Text style={styles.versionText}>AirSafe v{appVersion}</Text>
       </ScrollView>
     </View>
   );
@@ -232,19 +179,5 @@ const styles = StyleSheet.create({
   notifTitle: { fontSize: 13, fontFamily: 'Poppins_600SemiBold', color: palette.textStrong },
   notifSub: { fontSize: 11, fontFamily: 'Poppins_400Regular', color: palette.text },
   divider: { height: 1, backgroundColor: palette.border, marginVertical: 12 },
-  accountTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: palette.brandDeep, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 14, fontFamily: 'Poppins_600SemiBold', color: '#FFFFFF' },
-  accountInfo: { flex: 1, gap: 1 },
-  accountName: { fontSize: 14, fontFamily: 'Poppins_600SemiBold', color: palette.textStrong },
-  accountEmail: { fontSize: 11, fontFamily: 'Poppins_400Regular', color: palette.text },
-  editProfileBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 9999, borderWidth: 1, borderColor: palette.border, backgroundColor: '#F9FBFC' },
-  editProfileText: { fontSize: 11, fontFamily: 'Poppins_600SemiBold', color: palette.textStrong },
-  accountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 },
-  accountRowLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  accountIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F1F7FB', alignItems: 'center', justifyContent: 'center' },
-  accountIconDanger: { backgroundColor: '#FFF1F0' },
-  accountRowLabel: { fontSize: 13, fontFamily: 'Poppins_400Regular', color: palette.textStrong },
-  logoutText: { color: palette.unhealthy, fontFamily: 'Poppins_600SemiBold' },
   versionText: { textAlign: 'center', fontSize: 10, fontFamily: 'Poppins_400Regular', color: palette.text, marginTop: 8, marginBottom: 8 },
 });

@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } fr
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path, Line } from 'react-native-svg';
 import { palette } from '../styles/palette';
+import { getTrendData, getXLabels } from '../data';
 
 type TimeRange = 'day' | 'week' | 'month';
 
@@ -18,25 +19,15 @@ const legend = [
   { color: '#A78BFA', label: 'VOC' },
 ];
 
-// 9 points to match mockup waviness — normalized 0 (top) to 1 (bottom)
-const co2Data = [0.38, 0.34, 0.26, 0.28, 0.32, 0.22, 0.20, 0.24, 0.22];
-const pmData = [0.58, 0.56, 0.60, 0.48, 0.52, 0.48, 0.52, 0.48, 0.46];
-const vocData = [0.70, 0.69, 0.67, 0.69, 0.66, 0.66, 0.67, 0.66, 0.65];
-
-const xLabels = ['12AM', '6AM', '12PM', '6PM', '12AM'];
-
-const summaryRows = [
-  { label: 'CO₂ average', value: '648 ppm', sub: 'Sensirion SCD41', peak: 'peak 812', color: palette.textStrong },
-  { label: 'PM2.5 average', value: '21 µg/m³', sub: 'PMS5003', peak: 'peak 39', color: palette.textStrong },
-  { label: 'Good-air hours', value: '17.2 hrs', sub: '% of monitored day', peak: '71.6%', color: palette.good },
-];
-
-function toPoints(data: number[], w: number, h: number, padX: number, padTop: number, padBot: number) {
+function toPointsNormalized(data: number[], w: number, h: number, padX: number, padTop: number, padBot: number, vOffset: number, vScale: number) {
   const innerW = w - padX * 2;
   const innerH = h - padTop - padBot;
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
   return data.map((v, i) => ({
     x: padX + (i / (data.length - 1)) * innerW,
-    y: padTop + v * innerH,
+    y: padTop + (1 - (v - min) / range) * innerH * vScale + innerH * vOffset,
   }));
 }
 
@@ -58,28 +49,18 @@ function smoothPath(pts: { x: number; y: number }[]) {
   return d;
 }
 
-function ChartLines({ w, h }: { w: number; h: number }) {
+function Chart({ co2, pm25, voc, w, h }: { co2: number[]; pm25: number[]; voc: number[]; w: number; h: number }) {
   const padX = 8;
   const padTop = 8;
   const padBot = 8;
-  const dCO2 = useMemo(() => smoothPath(toPoints(co2Data, w, h, padX, padTop, padBot)), [w, h]);
-  const dPM = useMemo(() => smoothPath(toPoints(pmData, w, h, padX, padTop, padBot)), [w, h]);
-  const dVOC = useMemo(() => smoothPath(toPoints(vocData, w, h, padX, padTop, padBot)), [w, h]);
   const innerH = h - padTop - padBot;
+  const dCO2 = smoothPath(toPointsNormalized(co2, w, h, padX, padTop, padBot, 0.12, 0.32));
+  const dPM = smoothPath(toPointsNormalized(pm25, w, h, padX, padTop, padBot, 0.34, 0.32));
+  const dVOC = smoothPath(toPointsNormalized(voc, w, h, padX, padTop, padBot, 0.56, 0.32));
   return (
     <Svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ backgroundColor: '#FFFFFF' }}>
       {[0.25, 0.5, 0.75].map((frac) => (
-        <Line
-          key={frac}
-          x1={padX}
-          y1={padTop + frac * innerH}
-          x2={w - padX}
-          y2={padTop + frac * innerH}
-          stroke="#E8ECF0"
-          strokeWidth={1}
-          strokeDasharray="6,6"
-          strokeOpacity={0.9}
-        />
+        <Line key={frac} x1={padX} y1={padTop + frac * innerH} x2={w - padX} y2={padTop + frac * innerH} stroke="#E8ECF0" strokeWidth={1} strokeDasharray="6,6" strokeOpacity={0.9} />
       ))}
       <Path d={dVOC} stroke="#A78BFA" strokeWidth={1.7} fill="none" strokeDasharray="5,4" strokeLinecap="round" />
       <Path d={dPM} stroke="#E8B93F" strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
@@ -92,62 +73,114 @@ export default function TrendsScreen() {
   const [range, setRange] = useState<TimeRange>('day');
   const insets = useSafeAreaInsets();
   const { width: winW } = useWindowDimensions();
-  const chartW = winW - 40 - 32; // screen pad 20*2 + card pad 16*2
+  const chartW = winW - 40 - 32;
+
+  const trendData = getTrendData(range);
+  const xLabels = getXLabels(range);
+
+  const co2Values = trendData.co2.map((d) => d.y);
+  const pm25Values = trendData.pm25.map((d) => d.y);
+  const vocValues = trendData.voc.map((d) => d.y);
+
+  const summaryRows = [
+    {
+      label: 'CO₂ average',
+      value: `${Math.round(trendData.summary.co2.avg)} ppm`,
+      sub: 'Sensirion SCD41',
+      peak: `peak ${Math.round(trendData.summary.co2.max)}`,
+      color: palette.textStrong,
+    },
+    {
+      label: 'PM2.5 average',
+      value: `${trendData.summary.pm25.avg.toFixed(1)} µg/m³`,
+      sub: 'PMS5003',
+      peak: `peak ${trendData.summary.pm25.max.toFixed(1)}`,
+      color: palette.textStrong,
+    },
+    {
+      label: 'VOC average',
+      value: `${Math.round(trendData.summary.voc.avg)} ppb`,
+      sub: 'SGP41 · index',
+      peak: `peak ${Math.round(trendData.summary.voc.max)}`,
+      color: palette.textStrong,
+    },
+    {
+      label: 'Good-air hours',
+      value: `${((trendData.pm25.filter((v) => v.y <= 25).length / trendData.pm25.length) * 24).toFixed(1)} hrs`,
+      sub: '% of monitored day',
+      peak: `${((trendData.pm25.filter((v) => v.y <= 25).length / trendData.pm25.length) * 100).toFixed(1)}%`,
+      color: palette.good,
+    },
+    {
+      label: 'CO₂ max',
+      value: `${Math.round(trendData.summary.co2.max)} ppm`,
+      sub: 'Highest today',
+      peak: `avg ${Math.round(trendData.summary.co2.avg)}`,
+      color: palette.unhealthy,
+    },
+    {
+      label: 'PM2.5 exposure',
+      value: `${(trendData.summary.pm25.avg * 24).toFixed(1)} µg·h/m³`,
+      sub: 'Cumulative',
+      peak: `min ${trendData.summary.pm25.min.toFixed(1)}`,
+      color: palette.textStrong,
+    },
+  ];
 
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 16 }]} style={styles.scroll} keyboardShouldPersistTaps="handled">
-      <Text style={styles.sectionLabel}>HISTORICAL DATA</Text>
-      <Text style={styles.screenTitle}>Trends</Text>
+        <Text style={styles.sectionLabel}>HISTORICAL DATA</Text>
+        <Text style={styles.screenTitle}>Trends</Text>
 
-      <View style={styles.pillRow}>
-        {timeRanges.map((r) => (
-          <Pressable key={r.key} onPress={() => setRange(r.key)} style={[styles.pill, range === r.key && styles.pillActive]}>
-            <Text style={[styles.pillText, range === r.key && styles.pillTextActive]}>{r.label}</Text>
-          </Pressable>
-        ))}
-      </View>
-
-      <View style={styles.chartCard}>
-        <View style={styles.legendRow}>
-          {legend.map((l) => (
-            <View key={l.label} style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: l.color }]} />
-              <Text style={styles.legendLabel}>{l.label}</Text>
-            </View>
+        <View style={styles.pillRow}>
+          {timeRanges.map((r) => (
+            <Pressable key={r.key} onPress={() => setRange(r.key)} style={[styles.pill, range === r.key && styles.pillActive]}>
+              <Text style={[styles.pillText, range === r.key && styles.pillTextActive]}>{r.label}</Text>
+            </Pressable>
           ))}
         </View>
 
-        <View style={styles.chartWrap}>
-          <ChartLines w={chartW} h={200} />
-        </View>
-
-        <View style={styles.xAxis}>
-          {xLabels.map((label, idx) => (
-            <Text key={`${label}-${idx}`} style={styles.xAxisLabel}>{label}</Text>
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.summaryHeader}>
-        <Text style={styles.summaryTitle}>Today&apos;s summary</Text>
-        <Text style={styles.summaryDate}>Aug 16</Text>
-      </View>
-
-      <View style={styles.summaryCard}>
-        {summaryRows.map((row, i) => (
-          <View key={row.label} style={[styles.summaryRow, i < summaryRows.length - 1 && styles.summaryBorder]}>
-            <View style={styles.summaryLeft}>
-              <Text style={styles.summaryLabel}>{row.label}</Text>
-              <Text style={styles.summarySub}>{row.sub}</Text>
-            </View>
-            <View style={styles.summaryRight}>
-              <Text style={[styles.summaryValue, { color: row.color }]}>{row.value}</Text>
-              <Text style={styles.summaryPeak}>{row.peak}</Text>
-            </View>
+        <View style={styles.chartCard}>
+          <View style={styles.legendRow}>
+            {legend.map((l) => (
+              <View key={l.label} style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: l.color }]} />
+                <Text style={styles.legendLabel}>{l.label}</Text>
+              </View>
+            ))}
           </View>
-        ))}
-      </View>
+
+          <View style={styles.chartWrap}>
+            <Chart co2={co2Values} pm25={pm25Values} voc={vocValues} w={chartW} h={190} />
+          </View>
+
+          <View style={styles.xAxis}>
+            {xLabels.map((label, idx) => (
+              <Text key={`${label}-${idx}`} style={styles.xAxisLabel}>{label}</Text>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.summaryHeader}>
+          <Text style={styles.summaryTitle}>Today&apos;s summary</Text>
+          <Text style={styles.summaryDate}>{new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</Text>
+        </View>
+
+        <View style={styles.summaryCard}>
+          {summaryRows.map((row, i) => (
+            <View key={row.label} style={[styles.summaryRow, i < summaryRows.length - 1 && styles.summaryBorder]}>
+              <View style={styles.summaryLeft}>
+                <Text style={styles.summaryLabel}>{row.label}</Text>
+                <Text style={styles.summarySub}>{row.sub}</Text>
+              </View>
+              <View style={styles.summaryRight}>
+                <Text style={[styles.summaryValue, { color: row.color }]}>{row.value}</Text>
+                <Text style={styles.summaryPeak}>{row.peak}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
       </ScrollView>
     </View>
   );
@@ -170,18 +203,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 10,
+    paddingTop: 16,
+    paddingBottom: 12,
     marginBottom: 18,
     width: '100%',
     overflow: 'hidden',
   },
-  legendRow: { flexDirection: 'row', gap: 16, marginBottom: 8, alignSelf: 'flex-start' },
+  legendRow: { flexDirection: 'row', gap: 16, marginBottom: 10, alignSelf: 'flex-start' },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
   legendLabel: { fontSize: 11, fontFamily: 'Poppins_400Regular', color: palette.text },
-  chartWrap: { width: '100%', alignItems: 'center', justifyContent: 'center', minHeight: 200 },
-  xAxis: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginTop: 6, paddingHorizontal: 4 },
+  chartWrap: { width: '100%', alignItems: 'center', justifyContent: 'center', minHeight: 190 },
+  xAxis: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginTop: 8, paddingHorizontal: 4 },
   xAxisLabel: { fontSize: 9, fontFamily: 'Poppins_400Regular', color: palette.text },
   summaryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 },
   summaryTitle: { fontSize: 16, fontFamily: 'Poppins_700Bold', color: palette.textStrong },

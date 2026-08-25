@@ -1,11 +1,10 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Rect, Line } from 'react-native-svg';
 import { palette } from '../styles/palette';
-
-type AlertLevel = 'unhealthy' | 'moderate' | 'good' | 'veryUnhealthy';
+import { getAlerts, getAlertById, getAlertSummary, resolveAlert, AlertItem, AlertLevel } from '../data';
 
 const levelMeta: Record<AlertLevel, { color: string; label: string; icon: keyof typeof Ionicons.glyphMap }> = {
   unhealthy: { color: palette.unhealthy, label: 'Unhealthy', icon: 'warning-outline' },
@@ -13,25 +12,6 @@ const levelMeta: Record<AlertLevel, { color: string; label: string; icon: keyof 
   good: { color: palette.good, label: 'Resolved', icon: 'checkmark' },
   veryUnhealthy: { color: palette.hazardous, label: 'Very Unhealthy', icon: 'alert-circle-outline' },
 };
-
-type AlertItem = {
-  id: string;
-  title: string;
-  desc: string;
-  time: string;
-  level: AlertLevel;
-  value?: string;
-};
-
-const todayData: AlertItem[] = [
-  { id: '1', title: 'PM2.5 exceeded threshold', desc: 'Reached 39 µg/m³, above the 35 µg/m³\nUnhealthy cutoff. Ventilation\nrecommended.', time: '18 min ago', level: 'unhealthy', value: '39' },
-  { id: '2', title: 'CO₂ elevated', desc: '812 ppm sustained for 40 min —\nindicates reduced fresh-air exchange.', time: '52 min ago', level: 'moderate', value: '812' },
-];
-
-const yesterdayData: AlertItem[] = [
-  { id: '3', title: 'Air quality restored', desc: 'PM2.5 returned to Good range after\npurifier ran on High for 22 min.', time: '7:42 PM', level: 'good' },
-  { id: '4', title: 'VOC spike detected', desc: 'Index jumped to 210 — likely cleaning\nagents. Occupants notified.', time: '2:15 PM', level: 'veryUnhealthy' },
-];
 
 function AlertCard({ item, onPress, resolved }: { item: AlertItem; onPress?: () => void; resolved?: boolean }) {
   const meta = levelMeta[item.level];
@@ -46,9 +26,9 @@ function AlertCard({ item, onPress, resolved }: { item: AlertItem; onPress?: () 
         </View>
         <View style={styles.cardText}>
           <Text style={styles.cardTitle}>{item.title}</Text>
-          <Text style={styles.cardDesc}>{item.desc}</Text>
+          <Text style={styles.cardDesc}>{item.description}</Text>
           <View style={styles.cardFooter}>
-            <Text style={styles.cardTime}>{item.time}</Text>
+            <Text style={styles.cardTime}>{new Date(item.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</Text>
             <Text style={[styles.cardLevel, { color: isResolved ? palette.good : meta.color }]}>{isResolved ? 'Resolved' : meta.label}</Text>
           </View>
         </View>
@@ -63,22 +43,23 @@ function DetailView({ item, onBack, onResolved }: { item: AlertItem; onBack: () 
   const chartW = winW - 40 - 32;
   const [note, setNote] = useState('');
   const [notify, setNotify] = useState(true);
+  const scrollRef = useRef<ScrollView>(null);
 
   return (
     <View style={styles.screen}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 10 }]} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={scrollRef} contentContainerStyle={[styles.content, { paddingTop: insets.top + 10, paddingBottom: 160 }]} keyboardShouldPersistTaps="handled">
         <View style={styles.detailHeader}>
           <Pressable onPress={onBack} style={styles.detailBack}>
             <Ionicons name="arrow-back" size={18} color={palette.textStrong} />
           </Pressable>
           <View>
             <Text style={styles.detailTitle}>{item.title}</Text>
-            <Text style={styles.detailSub}>Room 204 · {item.time}</Text>
+            <Text style={styles.detailSub}>{item.roomName} · {new Date(item.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</Text>
           </View>
         </View>
 
-        <Text style={styles.bigValue}>{item.value || '—'}</Text>
-        <Text style={styles.bigUnit}>{item.level === 'unhealthy' ? 'micrograms per cubic meter (µg/m³)' : 'ppm'}</Text>
+        <Text style={styles.bigValue}>{item.value.toFixed(1)}</Text>
+        <Text style={styles.bigUnit}>{item.unit}</Text>
         <View style={[styles.detailBadge, { backgroundColor: `${levelMeta[item.level].color}18` }]}>
           <View style={[styles.dotSm, { backgroundColor: levelMeta[item.level].color }]} />
           <Text style={[styles.detailBadgeText, { color: levelMeta[item.level].color }]}>{levelMeta[item.level].label}</Text>
@@ -86,23 +67,40 @@ function DetailView({ item, onBack, onResolved }: { item: AlertItem; onBack: () 
 
         <View style={styles.chartCard}>
           <View style={styles.chartLegend}>
-            <View style={styles.legendItem}><View style={[styles.dot, { backgroundColor: palette.brand }]} /><Text style={styles.legendText}>PM2.5 since trigger</Text></View>
-            <View style={styles.legendItem}><View style={[styles.dot, { backgroundColor: '#F5E6C8' }]} /><Text style={styles.legendText}>Threshold 35 µg/m³</Text></View>
+            <View style={styles.legendItem}>
+              <View style={[styles.dot, { backgroundColor: palette.brand }]} />
+              <Text style={styles.legendText}>{item.title} — {item.unit}</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.dot, { backgroundColor: '#F5E6C8' }]} />
+              <Text style={styles.legendText}>Threshold: {item.threshold} {item.unit}</Text>
+            </View>
           </View>
           <Svg width={chartW} height={160} viewBox={`0 0 ${chartW} 160`}>
             <Rect x={0} y={24} width={chartW} height={18} fill="#FFF4D6" opacity={0.9} />
             <Path
               d={(() => {
-                const pts = [0.65, 0.62, 0.58, 0.4, 0.38, 0.32, 0.28, 0.3, 0.29].map((v, i) => ({ x: (i / 8) * chartW, y: 10 + v * 80 }));
+                const pts = item.chartData || [];
+                if (pts.length === 0) return '';
                 let d = `M ${pts[0].x},${pts[0].y}`;
                 for (let i = 0; i < pts.length - 1; i++) {
-                  const p0 = pts[Math.max(i - 1, 0)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(i + 2, pts.length - 1)];
-                  const t = 0.25, cp1x = p1.x + (p2.x - p0.x) * t, cp1y = p1.y + (p2.y - p0.y) * t, cp2x = p2.x - (p3.x - p1.x) * t, cp2y = p2.y - (p3.y - p1.y) * t;
+                  const p0 = pts[Math.max(i - 1, 0)];
+                  const p1 = pts[i];
+                  const p2 = pts[i + 1];
+                  const p3 = pts[Math.min(i + 2, pts.length - 1)];
+                  const t = 0.25;
+                  const cp1x = p1.x + (p2.x - p0.x) * t;
+                  const cp1y = p1.y + (p2.y - p0.y) * t;
+                  const cp2x = p2.x - (p3.x - p1.x) * t;
+                  const cp2y = p2.y - (p3.y - p1.y) * t;
                   d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`;
                 }
                 return d;
               })()}
-              stroke={palette.brand} strokeWidth={2.2} fill="none" />
+              stroke={palette.brand}
+              strokeWidth={2.2}
+              fill="none"
+            />
           </Svg>
           <View style={styles.xAxis}>
             {['-40m', '-30m', '-20m', '-10m', 'Now'].map((l) => <Text key={l} style={styles.xLabel}>{l}</Text>)}
@@ -111,14 +109,26 @@ function DetailView({ item, onBack, onResolved }: { item: AlertItem; onBack: () 
 
         <View style={styles.recCard}>
           <Text style={styles.recTitle}>RECOMMENDED ACTION</Text>
-          <Text style={styles.recText}>Increase ventilation or run the purifier on High until the reading returns below 35 µg/m³. This alert will auto-resolve once PM2.5 stays under the threshold for 10 consecutive minutes.</Text>
+          <Text style={styles.recText}>
+            Increase ventilation or run the purifier on High until the reading returns below {item.threshold} {item.unit}. 
+            This alert will auto-resolve once the value stays under the threshold for 10 consecutive minutes.
+          </Text>
         </View>
 
         <View style={styles.noteHeader}>
           <Text style={styles.noteTitle}>Add a note</Text>
           <Text style={styles.noteOpt}>Optional</Text>
         </View>
-        <TextInput value={note} onChangeText={setNote} placeholder="e.g. “Opened windows, running purifier on High”" placeholderTextColor={palette.text} style={styles.noteInput} multiline />
+        <TextInput
+          value={note}
+          onChangeText={setNote}
+          placeholder="e.g. \u201cOpened windows, running purifier on High\u201d"
+          placeholderTextColor={palette.text}
+          style={styles.noteInput}
+          multiline
+          onFocus={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 300)}
+          onBlur={() => scrollRef.current?.scrollTo({ y: 0, animated: true })}
+        />
 
         <View style={styles.notifyRow}>
           <View>
@@ -151,7 +161,7 @@ function ResolvedAllView({ onBack }: { onBack: () => void }) {
 
         <View style={styles.checkCircle}><Ionicons name="checkmark" size={28} color={palette.good} /></View>
         <Text style={styles.resolvedTitle}>All alerts resolved</Text>
-        <Text style={styles.resolvedSub}>2 alerts marked resolved. Room 204 is{'\n'}back within safe air quality range.</Text>
+        <Text style={styles.resolvedSub}>All alerts marked resolved. Room 204 is{'\n'}back within safe air quality range.</Text>
         <Text style={styles.resolvedTime}>RESOLVED AT {time.toUpperCase()}</Text>
 
         <View style={styles.resolvedCard}>
@@ -174,21 +184,21 @@ function ResolvedAllView({ onBack }: { onBack: () => void }) {
   );
 }
 
+const isTodayAlert = (a: AlertItem) => Date.now() - new Date(a.timestamp).getTime() < 24 * 60 * 60 * 1000;
+
 export default function AlertsScreen() {
   const insets = useSafeAreaInsets();
   const [active, setActive] = useState(3);
   const [view, setView] = useState<'list' | 'resolved'>('list');
   const [selected, setSelected] = useState<AlertItem | null>(null);
-  const [today, setToday] = useState(todayData);
-  const [yesterday, setYesterday] = useState(yesterdayData);
+  const all = getAlerts();
+  const [today, setToday] = useState<AlertItem[]>(all.filter(isTodayAlert));
+  const [yesterday, setYesterday] = useState<AlertItem[]>(all.filter((a) => !isTodayAlert(a)));
 
   if (selected) return <DetailView item={selected} onBack={() => setSelected(null)} onResolved={() => {
     const isToday = today.some((x) => x.id === selected.id);
-    if (isToday) {
-      setToday((p) => p.map((x) => x.id === selected.id ? { ...x, level: 'good' as AlertLevel } : x));
-    } else {
-      setYesterday((p) => p.map((x) => x.id === selected.id ? { ...x, level: 'good' as AlertLevel } : x));
-    }
+    if (isToday) setToday((p) => p.map((x) => x.id === selected.id ? { ...x, level: 'good' as AlertLevel, resolved: true, resolvedAt: new Date().toISOString() } : x));
+    else setYesterday((p) => p.map((x) => x.id === selected.id ? { ...x, level: 'good' as AlertLevel, resolved: true, resolvedAt: new Date().toISOString() } : x));
     setSelected(null);
     setActive((v) => Math.max(0, v - 1));
   }} />;
@@ -206,17 +216,21 @@ export default function AlertsScreen() {
               <Text style={styles.summaryTitle}>{active} active alerts</Text>
               <Text style={styles.summarySub}>Room 204 · Main Library</Text>
             </View>
-            <Pressable onPress={() => { setToday((p) => p.map((x) => ({ ...x, level: 'good' as AlertLevel }))); setYesterday((p) => p.map((x) => ({ ...x, level: 'good' as AlertLevel }))); setActive(0); }} style={styles.resolveBtn}>
+            <Pressable onPress={() => {
+              setToday((p) => p.map((x) => ({ ...x, level: 'good' as AlertLevel, resolved: true, resolvedAt: new Date().toISOString() })));
+              setYesterday((p) => p.map((x) => ({ ...x, level: 'good' as AlertLevel, resolved: true, resolvedAt: new Date().toISOString() })));
+              setActive(0);
+            }} style={styles.resolveBtn}>
               <Text style={styles.resolveText}>Resolve all</Text>
             </Pressable>
           </View>
         )}
 
         <Text style={styles.sectionLabel}>TODAY</Text>
-        {today.length ? today.map((a) => <AlertCard key={a.id} item={a} onPress={() => setSelected(a)} />) : <Text style={styles.emptyText}>No active alerts</Text>}
+        {today.length ? today.map((a) => <AlertCard key={a.id} item={a} onPress={() => setSelected(a)} />) : <Text style={styles.emptyText}>No alerts</Text>}
 
         <Text style={styles.sectionLabel}>YESTERDAY</Text>
-        {yesterday.map((a) => <AlertCard key={a.id} item={a} onPress={() => setSelected(a)} />)}
+        {yesterday.length ? yesterday.map((a) => <AlertCard key={a.id} item={a} onPress={() => setSelected(a)} />) : <Text style={styles.emptyText}>No older alerts</Text>}
       </ScrollView>
     </View>
   );
@@ -243,12 +257,11 @@ const styles = StyleSheet.create({
   cardTime: { fontSize: 10, fontFamily: 'Poppins_400Regular', color: palette.text },
   cardLevel: { fontSize: 10, fontFamily: 'Poppins_600SemiBold' },
   emptyText: { fontSize: 12, fontFamily: 'Poppins_400Regular', color: palette.text, marginBottom: 10 },
-  // detail
   detailHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
   detailBack: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: palette.border, alignItems: 'center', justifyContent: 'center' },
   detailTitle: { fontSize: 14, fontFamily: 'Poppins_600SemiBold', color: palette.textStrong },
   detailSub: { fontSize: 10, fontFamily: 'Poppins_400Regular', color: palette.text, marginTop: 1 },
-bigValue: { fontSize: 60, fontFamily: 'Poppins_700Bold', color: palette.textStrong, textAlign: 'center' },
+  bigValue: { fontSize: 60, fontFamily: 'Poppins_700Bold', color: palette.textStrong, textAlign: 'center' },
   bigUnit: { fontSize: 14, fontFamily: 'Poppins_400Regular', color: palette.text, textAlign: 'center', marginTop: 4 },
   detailBadge: { alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 9999, marginTop: 10, marginBottom: 18 },
   dotSm: { width: 8, height: 8, borderRadius: 4 },
@@ -272,7 +285,6 @@ bigValue: { fontSize: 60, fontFamily: 'Poppins_700Bold', color: palette.textStro
   notifySub: { fontSize: 11, fontFamily: 'Poppins_400Regular', color: palette.text, marginTop: 2 },
   markBtn: { backgroundColor: palette.good, borderRadius: 9999, paddingVertical: 14, alignItems: 'center', marginBottom: 10 },
   markText: { fontSize: 14, fontFamily: 'Poppins_600SemiBold', color: '#FFFFFF' },
-  // resolved all
   checkCircle: { alignSelf: 'center', width: 64, height: 64, borderRadius: 32, backgroundColor: '#E6F7EB', alignItems: 'center', justifyContent: 'center', marginTop: 8, marginBottom: 14 },
   resolvedTitle: { fontSize: 18, fontFamily: 'Poppins_700Bold', color: palette.textStrong, textAlign: 'center' },
   resolvedSub: { fontSize: 12, fontFamily: 'Poppins_400Regular', color: palette.text, textAlign: 'center', marginTop: 6, lineHeight: 16 },

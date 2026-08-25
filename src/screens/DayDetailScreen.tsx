@@ -3,12 +3,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Rect, Line } from 'react-native-svg';
 import { palette } from '../styles/palette';
-import { AirLevel } from '../data/homeContent';
+import { AirLevel } from '../data';
 
 const levelMeta: Record<AirLevel, { label: string; color: string; bg: string }> = {
   good: { label: 'Good', color: palette.good, bg: '#E6F7EB' },
-  bad: { label: 'Moderate', color: '#D9A441', bg: '#FFF4D6' },
-  critical: { label: 'Unhealthy', color: palette.unhealthy, bg: '#FFE8E0' },
+  moderate: { label: 'Moderate', color: '#D9A441', bg: '#FFF4D6' },
+  bad: { label: 'Bad', color: '#E8903F', bg: '#FFF4D6' },
+  unhealthy: { label: 'Unhealthy', color: palette.unhealthy, bg: '#FFE8E0' },
+  veryUnhealthy: { label: 'Very Unhealthy', color: '#D33F3F', bg: '#FFE8E0' },
+  critical: { label: 'Critical', color: palette.unhealthy, bg: '#FFE8E0' },
+  hazardous: { label: 'Hazardous', color: '#9C27B0', bg: '#F3E5F5' },
 };
 
 export default function DayDetailScreen({
@@ -18,16 +22,14 @@ export default function DayDetailScreen({
   onBack,
 }: {
   day: string;
-  value: string;
+  value: number;
   level: AirLevel;
   onBack: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const { width: winW } = useWindowDimensions();
   const chartW = winW - 40 - 32;
-  const numeric = parseInt(value) || 24;
 
-  // fake 24h data around the day's value
   const pts = [0.7, 0.65, 0.68, 0.5, 0.42, 0.45, 0.38, 0.32, 0.35];
 
   return (
@@ -43,7 +45,7 @@ export default function DayDetailScreen({
           </View>
         </View>
 
-        <Text style={styles.bigValue}>{numeric}</Text>
+        <Text style={styles.bigValue}>{value.toFixed(1)}</Text>
         <Text style={styles.bigUnit}>micrograms per cubic meter (µg/m³)</Text>
 
         <View style={[styles.badge, { backgroundColor: levelMeta[level].bg }]}>
@@ -64,11 +66,8 @@ export default function DayDetailScreen({
           </View>
 
           <Svg width={chartW} height={110} viewBox={`0 0 ${chartW} 110`}>
-            {/* threshold band */}
             <Rect x={0} y={22} width={chartW} height={18} fill="#FFF4D6" opacity={0.9} />
-            {/* grid */}
             <Line x1={0} y1={82} x2={chartW} y2={82} stroke="#E8ECF0" strokeWidth={1} strokeDasharray="4,4" />
-            {/* line */}
             <Path
               d={(() => {
                 const w = chartW;
@@ -107,7 +106,7 @@ export default function DayDetailScreen({
             <Text style={styles.statSub}>PM1.0 µg/m³</Text>
           </View>
           <View style={styles.statBox}>
-            <Text style={styles.statVal}>24</Text>
+            <Text style={styles.statVal}>{value.toFixed(1)}</Text>
             <Text style={styles.statSub}>PM2.5 µg/m³</Text>
           </View>
           <View style={styles.statBox}>

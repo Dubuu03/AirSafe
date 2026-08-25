@@ -1,44 +1,182 @@
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { palette } from '../styles/palette';
-import { HomeData, goodData, badData, criticalData, AirLevel } from '../data/homeContent';
+import { getMockHomeData, HomeData, AirLevel, DayReport, getUserProfile } from '../data';
 import DayDetailScreen from './DayDetailScreen';
 
 const levelColor: Record<AirLevel, string> = {
   good: '#3FB65F',
-  bad: '#E8B93F',
+  moderate: '#E8B93F',
+  bad: '#E8903F',
+  unhealthy: '#E8703F',
+  veryUnhealthy: '#D33F3F',
   critical: '#E8703F',
+  hazardous: '#9C27B0',
 };
 
 const levelLabel: Record<AirLevel, string> = {
   good: 'Good',
+  moderate: 'Moderate',
   bad: 'Bad',
+  unhealthy: 'Unhealthy',
+  veryUnhealthy: 'Very Unhealthy',
   critical: 'Critical',
+  hazardous: 'Hazardous',
 };
 
-export default function HomeScreen() {
-  const [variant, setVariant] = useState<HomeData>(goodData);
-  const [selected, setSelected] = useState<null | (typeof goodData.weekly)[number]>(null);
+function AccountDrawer({ visible, onClose, onLogout }: { visible: boolean; onClose: () => void; onLogout: () => void }) {
+  const insets = useSafeAreaInsets();
+  const user = getUserProfile();
+  const slideAnim = useRef(new Animated.Value(320)).current;
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.timing(slideAnim, { toValue: 0, duration: 260, useNativeDriver: true }),
+        Animated.timing(backdropOpacity, { toValue: 1, duration: 260, useNativeDriver: true }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(slideAnim, { toValue: 320, duration: 220, useNativeDriver: true }),
+        Animated.timing(backdropOpacity, { toValue: 0, duration: 220, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [visible]);
+
+  if (!visible && (slideAnim as any)._value === -320) {
+    // still render for animation out, but after animation hide
+  }
+
+  return (
+    <View pointerEvents={visible ? 'auto' : 'none'} style={[drawerStyles.container, { opacity: visible ? 1 : 0 }]}>
+      <Animated.View style={[drawerStyles.backdrop, { opacity: backdropOpacity }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      </Animated.View>
+      <Animated.View style={[drawerStyles.panel, { paddingTop: insets.top + 16, transform: [{ translateX: slideAnim }] }]}>
+        <View style={drawerStyles.drawerHeader}>
+          <Pressable onPress={onClose} style={drawerStyles.closeBtn}>
+            <Ionicons name="close" size={20} color={palette.textStrong} />
+          </Pressable>
+          <Text style={drawerStyles.drawerTitle}>Account</Text>
+        </View>
+
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+          <View style={drawerStyles.accountTop}>
+            <View style={drawerStyles.avatar}>
+              <Text style={drawerStyles.avatarText}>{user.name.split(' ').map((n) => n[0]).join('')}</Text>
+            </View>
+            <View style={drawerStyles.accountInfo}>
+              <Text style={drawerStyles.accountName}>{user.name}</Text>
+              <Text style={drawerStyles.accountEmail}>{user.email}</Text>
+            </View>
+            <Pressable style={drawerStyles.editProfileBtn}>
+              <Text style={drawerStyles.editProfileText}>Edit</Text>
+            </Pressable>
+          </View>
+
+          <View style={drawerStyles.divider} />
+
+          <Pressable style={drawerStyles.accountRow}>
+            <View style={drawerStyles.accountRowLeft}>
+              <View style={drawerStyles.accountIcon}>
+                <Ionicons name="lock-closed-outline" size={16} color={palette.textStrong} />
+              </View>
+              <Text style={drawerStyles.accountRowLabel}>Password & security</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={palette.text} />
+          </Pressable>
+
+          <Pressable style={drawerStyles.accountRow}>
+            <View style={drawerStyles.accountRowLeft}>
+              <View style={drawerStyles.accountIcon}>
+                <Ionicons name="notifications-outline" size={16} color={palette.textStrong} />
+              </View>
+              <Text style={drawerStyles.accountRowLabel}>Manage notifications</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={palette.text} />
+          </Pressable>
+
+          <Pressable
+            style={drawerStyles.accountRow}
+            onPress={() =>
+              Alert.alert('Log out', 'Are you sure you want to log out?', [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Log out',
+                  style: 'destructive',
+                  onPress: () => {
+                    onClose();
+                    onLogout();
+                  },
+                },
+              ])
+            }
+          >
+            <View style={drawerStyles.accountRowLeft}>
+              <View style={[drawerStyles.accountIcon, drawerStyles.accountIconDanger]}>
+                <Ionicons name="log-out-outline" size={16} color={palette.unhealthy} />
+              </View>
+              <Text style={[drawerStyles.accountRowLabel, drawerStyles.logoutText]}>Log out</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={palette.unhealthy} />
+          </Pressable>
+        </ScrollView>
+      </Animated.View>
+    </View>
+  );
+}
+
+export default function HomeScreen({ onLogout }: { onLogout?: () => void }) {
+  const [selected, setSelected] = useState<null | DayReport>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const insets = useSafeAreaInsets();
 
-  const data = variant;
+  const data = getMockHomeData();
 
   if (selected) {
     return <DayDetailScreen day={selected.day} value={selected.value} level={selected.level} onBack={() => setSelected(null)} />;
   }
+
+  const getAQIMessage = (level: AirLevel) => {
+    switch (level) {
+      case 'good': return 'Air quality is safe. Have a nice day!';
+      case 'moderate': return 'Air quality is acceptable but could be better.';
+      case 'bad': return 'Air quality is lower than normal.';
+      case 'unhealthy': return 'Air quality is unhealthy. Sensitive groups should limit outdoor activity.';
+      case 'veryUnhealthy': return 'Air quality is very unhealthy. Take action immediately.';
+      case 'critical': return 'Air quality is dangerous.';
+      case 'hazardous': return 'HAZARDOUS: Emergency conditions. Stay indoors.';
+    }
+  };
+
+  const getVentilationAdvice = (level: AirLevel) => {
+    switch (level) {
+      case 'critical':
+      case 'hazardous': return 'EMERGENCY: Seal room · run all purifiers · contact authorities';
+      case 'veryUnhealthy': return 'Run purifier on High · evacuate sensitive individuals';
+      case 'unhealthy': return 'Run purifier on High · limit outdoor activity';
+      case 'bad': return 'Open windows or run purifier on Auto';
+      case 'moderate': return 'Consider opening windows';
+      default: return null;
+    }
+  };
+
+  const ventilationAdvice = getVentilationAdvice(data.level);
+  const aqiMessage = getAQIMessage(data.level);
 
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 16 }]} keyboardShouldPersistTaps="handled">
         <View style={styles.headerRow}>
           <View>
-            <Text style={styles.greeting}>{data.greeting}, {data.name}</Text>
-            <Text style={styles.dateLine}>{data.date} · {data.location}</Text>
+            <Text style={styles.greeting}>Good Morning, {data.name}</Text>
+            <Text style={styles.dateLine}>{new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })} · {data.location}</Text>
           </View>
-          <Pressable style={styles.menuBtn}>
+          <Pressable style={styles.menuBtn} onPress={() => setDrawerOpen(true)}>
             <Ionicons name="menu-outline" size={22} color={palette.brandDeep} />
           </Pressable>
         </View>
@@ -51,29 +189,29 @@ export default function HomeScreen() {
         >
           <View style={styles.scoreTop}>
             <Text style={styles.scoreLabel}>POLLUTION SCORE</Text>
-            <Ionicons name={data.weatherIcon} size={36} color="#FFFFFF" />
+            <Ionicons name="cloud-outline" size={36} color="#FFFFFF" />
           </View>
-          <Text style={styles.scoreValue}>{data.score}<Text style={styles.scoreUnit}>µg/m³</Text></Text>
+          <Text style={styles.scoreValue}>{data.score.toFixed(1)}<Text style={styles.scoreUnit}>µg/m³</Text></Text>
           <View style={styles.scoreBottom}>
             <View style={[styles.badge, { backgroundColor: levelColor[data.level] }]}>
               <Text style={styles.badgeText}>{levelLabel[data.level]}</Text>
             </View>
-            <Text style={styles.scoreMessage}>{data.message}</Text>
+            <Text style={styles.scoreMessage}>{aqiMessage}</Text>
           </View>
         </LinearGradient>
 
         <View style={styles.statsRow}>
-          <StatBox value={data.temp} label="Temp · High" />
-          <StatBox value={data.humidity} label="Humidity" />
-          <StatBox value={data.rainfall} label="Rainfall" />
+          <StatBox value={`${data.temp}°C`} label="Temperature" />
+          <StatBox value={`${data.humidity}%`} label="Humidity" />
+          <StatBox value={`${data.rainfall}mm`} label="Rainfall" />
         </View>
 
-        {data.ventilation && (
+        {ventilationAdvice && (
           <View style={styles.ventBanner}>
             <Text style={styles.ventTitle}>
-              {data.level === 'critical' ? 'Evacuate poorly ventilated areas' : 'Ventilation recommended'}
+              {data.level === 'critical' || data.level === 'hazardous' ? 'Emergency actions required' : 'Ventilation recommended'}
             </Text>
-            <Text style={styles.ventMessage}>{data.ventilation}</Text>
+            <Text style={styles.ventMessage}>{ventilationAdvice}</Text>
           </View>
         )}
 
@@ -87,26 +225,15 @@ export default function HomeScreen() {
         <View style={styles.weeklyCard}>
           {data.weekly.map((day, i) => (
             <Pressable key={day.day} onPress={() => setSelected(day)} style={[styles.dayRow, i < data.weekly.length - 1 && styles.dayBorder]}>
-              <Ionicons name={day.icon} size={20} color={levelColor[day.level]} />
+              <Ionicons name="cloud-outline" size={20} color={levelColor[day.level]} />
               <Text style={styles.dayName}>{day.day}</Text>
-              <Text style={[styles.dayValue, { color: levelColor[day.level] }]}>{day.value}</Text>
+              <Text style={[styles.dayValue, { color: levelColor[day.level] }]}>{day.value.toFixed(1)}µg/m³</Text>
             </Pressable>
           ))}
         </View>
       </ScrollView>
 
-      {/* variant switcher for preview — remove later */}
-      {/* <View style={styles.variantRow}>
-        <Pressable onPress={() => setVariant(goodData)} style={[styles.variantBtn, variant.level === 'good' && styles.variantActive]}>
-          <Text style={[styles.variantBtnText, variant.level === 'good' && styles.variantBtnTextActive]}>Good</Text>
-        </Pressable>
-        <Pressable onPress={() => setVariant(badData)} style={[styles.variantBtn, variant.level === 'bad' && styles.variantActive]}>
-          <Text style={[styles.variantBtnText, variant.level === 'bad' && styles.variantBtnTextActive]}>Bad</Text>
-        </Pressable>
-        <Pressable onPress={() => setVariant(criticalData)} style={[styles.variantBtn, variant.level === 'critical' && styles.variantActive]}>
-          <Text style={[styles.variantBtnText, variant.level === 'critical' && styles.variantBtnTextActive]}>Critical</Text>
-        </Pressable>
-      </View> */}
+      <AccountDrawer visible={drawerOpen} onClose={() => setDrawerOpen(false)} onLogout={() => onLogout?.()} />
     </View>
   );
 }
@@ -119,6 +246,30 @@ function StatBox({ value, label }: { value: string; label: string }) {
     </View>
   );
 }
+
+const drawerStyles = StyleSheet.create({
+  container: { ...StyleSheet.absoluteFillObject, zIndex: 10 },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.35)' },
+  panel: { position: 'absolute', top: 0, bottom: 0, right: 0, width: 300, backgroundColor: '#FFFFFF', paddingHorizontal: 20, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 16, shadowOffset: { width: -4, height: 0 }, elevation: 10 },
+  drawerHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 },
+  closeBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F1F7FB', alignItems: 'center', justifyContent: 'center' },
+  drawerTitle: { fontSize: 16, fontFamily: 'Poppins_600SemiBold', color: palette.textStrong },
+  accountTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: palette.brandDeep, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 14, fontFamily: 'Poppins_600SemiBold', color: '#FFFFFF' },
+  accountInfo: { flex: 1, gap: 1 },
+  accountName: { fontSize: 14, fontFamily: 'Poppins_600SemiBold', color: palette.textStrong },
+  accountEmail: { fontSize: 11, fontFamily: 'Poppins_400Regular', color: palette.text },
+  editProfileBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 9999, borderWidth: 1, borderColor: palette.border, backgroundColor: '#F9FBFC' },
+  editProfileText: { fontSize: 11, fontFamily: 'Poppins_600SemiBold', color: palette.textStrong },
+  divider: { height: 1, backgroundColor: palette.border, marginVertical: 16 },
+  accountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12 },
+  accountRowLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  accountIcon: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F1F7FB', alignItems: 'center', justifyContent: 'center' },
+  accountIconDanger: { backgroundColor: '#FFF1F0' },
+  accountRowLabel: { fontSize: 13, fontFamily: 'Poppins_400Regular', color: palette.textStrong },
+  logoutText: { color: palette.unhealthy, fontFamily: 'Poppins_600SemiBold' },
+});
 
 const styles = StyleSheet.create({
   screen: {
@@ -151,7 +302,6 @@ const styles = StyleSheet.create({
     padding: 6,
   },
 
-  /* score card */
   scoreCard: {
     borderRadius: 28,
     paddingHorizontal: 24,
@@ -206,7 +356,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.85)',
   },
 
-  /* stat boxes */
   statsRow: {
     flexDirection: 'row',
     gap: 10,
@@ -233,7 +382,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  /* ventilation banner */
   ventBanner: {
     backgroundColor: '#FEF0E5',
     borderRadius: 16,
@@ -253,7 +401,6 @@ const styles = StyleSheet.create({
     color: palette.text,
   },
 
-  /* weekly report */
   weeklyHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -297,33 +444,5 @@ const styles = StyleSheet.create({
   dayValue: {
     fontSize: 13,
     fontFamily: 'Poppins_600SemiBold',
-  },
-
-  /* variant switcher (preview only) */
-  variantRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 6,
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: palette.border,
-  },
-  variantBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 9999,
-    backgroundColor: palette.surface,
-  },
-  variantActive: {
-    backgroundColor: palette.brandDeep,
-  },
-  variantBtnText: {
-    fontSize: 11,
-    fontFamily: 'Poppins_600SemiBold',
-    color: palette.textStrong,
-  },
-  variantBtnTextActive: {
-    color: '#FFFFFF',
   },
 });

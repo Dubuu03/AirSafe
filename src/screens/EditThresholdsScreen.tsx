@@ -3,6 +3,7 @@ import { LayoutChangeEvent, PanResponder, Pressable, ScrollView, StyleSheet, Swi
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { palette } from '../styles/palette';
+import { getThresholds, updateThresholds, ThresholdConfig } from '../data';
 
 type Props = { onBack: () => void };
 
@@ -31,14 +32,11 @@ function DualSlider({
   v2Ref.current = v2;
   onV1Ref.current = onV1;
   onV2Ref.current = onV2;
-  // keep wRef in sync
   const onLayout = (e: LayoutChangeEvent) => {
     const nw = e.nativeEvent.layout.width;
     setW(nw);
     wRef.current = nw;
   };
-  // also keep wRef updated when w changes (for handler that closes over)
-  // create stable responders once
   const startV1 = useRef(0);
   const startV2 = useRef(0);
 
@@ -104,22 +102,23 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
 
 export default function EditThresholdsScreen({ onBack }: Props) {
   const insets = useSafeAreaInsets();
+  const thresholds = getThresholds();
 
-  const [pmV1, setPmV1] = useState(0.32);
-  const [pmV2, setPmV2] = useState(0.64);
-  const [coV1, setCoV1] = useState(0.38);
-  const [coV2, setCoV2] = useState(0.62);
-  const [vocV1, setVocV1] = useState(0.30);
-  const [vocV2, setVocV2] = useState(0.52);
+  const [pmV1, setPmV1] = useState(thresholds.pm25.warning / PM_MAX);
+  const [pmV2, setPmV2] = useState(thresholds.pm25.unhealthy / PM_MAX);
+  const [coV1, setCoV1] = useState(thresholds.co2.warning / CO_MAX);
+  const [coV2, setCoV2] = useState(thresholds.co2.unhealthy / CO_MAX);
+  const [vocV1, setVocV1] = useState(thresholds.voc.warning / VOC_MAX);
+  const [vocV2, setVocV2] = useState(thresholds.voc.unhealthy / VOC_MAX);
 
-  const [pmGood, setPmGood] = useState('12');
-  const [pmMod, setPmMod] = useState('35');
-  const [coGood, setCoGood] = useState('800');
-  const [coMod, setCoMod] = useState('1000');
-  const [vocGood, setVocGood] = useState('100');
-  const [vocMod, setVocMod] = useState('250');
+  const [pmGood, setPmGood] = useState(String(thresholds.pm25.warning));
+  const [pmMod, setPmMod] = useState(String(thresholds.pm25.unhealthy));
+  const [coGood, setCoGood] = useState(String(thresholds.co2.warning));
+  const [coMod, setCoMod] = useState(String(thresholds.co2.unhealthy));
+  const [vocGood, setVocGood] = useState(String(thresholds.voc.warning));
+  const [vocMod, setVocMod] = useState(String(thresholds.voc.unhealthy));
 
-  const [coApply, setCoApply] = useState(true);
+  const [coApply, setCoApply] = useState(thresholds.applyToAllRooms);
   const [thApply, setThApply] = useState(false);
 
   const syncPmV1 = (v: number) => {
@@ -147,6 +146,29 @@ export default function EditThresholdsScreen({ onBack }: Props) {
     setVocMod(String(Math.round(v * VOC_MAX)));
   };
 
+  const saveThresholds = () => {
+    updateThresholds({
+      pm25: { 
+        warning: Math.round(pmV1 * PM_MAX), 
+        unhealthy: Math.round(pmV2 * PM_MAX), 
+        critical: thresholds.pm25.critical 
+      },
+      co2: { 
+        warning: Math.round(coV1 * CO_MAX), 
+        unhealthy: Math.round(coV2 * CO_MAX), 
+        critical: thresholds.co2.critical 
+      },
+      voc: { 
+        warning: Math.round(vocV1 * VOC_MAX), 
+        unhealthy: Math.round(vocV2 * VOC_MAX), 
+        critical: thresholds.voc.critical 
+      },
+      applyToAllRooms: coApply,
+      rooms: thApply ? ['room-204', 'room-101', 'room-102'] : thresholds.rooms,
+    });
+    onBack();
+  };
+
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 10 }]} keyboardShouldPersistTaps="handled">
@@ -158,6 +180,9 @@ export default function EditThresholdsScreen({ onBack }: Props) {
             <Text style={styles.headerTitle}>Edit Thresholds</Text>
             <Text style={styles.headerSub}>Set the Good / Moderate / Unhealthy cutoffs</Text>
           </View>
+          <Pressable onPress={saveThresholds} style={styles.saveBtn}>
+            <Text style={styles.saveBtnText}>Save</Text>
+          </Pressable>
         </View>
 
         <View style={styles.card}>
@@ -271,7 +296,7 @@ export default function EditThresholdsScreen({ onBack }: Props) {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: palette.surfaceDeep },
   content: { paddingHorizontal: 20, paddingBottom: 16 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16, justifyContent: 'space-between' },
   backBtn: {
     width: 32,
     height: 32,
@@ -284,6 +309,13 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 16, fontFamily: 'Poppins_600SemiBold', color: palette.textStrong },
   headerSub: { fontSize: 10, fontFamily: 'Poppins_400Regular', color: palette.text, marginTop: 1 },
+  saveBtn: {
+    backgroundColor: palette.brand,
+    borderRadius: 9999,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  saveBtnText: { fontSize: 12, fontFamily: 'Poppins_600SemiBold', color: '#FFFFFF' },
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 18,

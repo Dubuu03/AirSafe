@@ -73,10 +73,10 @@ function AppContent() {
       ) : (
         <>
           <View style={styles.screenArea}>
-            {activeTab === 'home' && <HomeScreen />}
+            {activeTab === 'home' && <HomeScreen onLogout={() => setAuthView('onboarding')} />}
             {activeTab === 'trends' && <TrendsScreen />}
             {activeTab === 'alerts' && <AlertsScreen />}
-            {activeTab === 'settings' &&             <SettingsScreen onLogout={() => setAuthView('onboarding')} />}
+            {activeTab === 'settings' && <SettingsScreen />}
           </View>
           <TabBar active={activeTab} onSelect={setActiveTab} />
         </>
