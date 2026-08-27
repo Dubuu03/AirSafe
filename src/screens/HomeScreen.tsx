@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { palette } from '../styles/palette';
 import { getMockHomeData, HomeData, AirLevel, DayReport, getUserProfile } from '../data';
 import DayDetailScreen from './DayDetailScreen';
+import StatDetailScreen from './StatDetailScreen';
 
 const levelColor: Record<AirLevel, string> = {
   good: '#3FB65F',
@@ -132,13 +133,18 @@ function AccountDrawer({ visible, onClose, onLogout }: { visible: boolean; onClo
 
 export default function HomeScreen({ onLogout }: { onLogout?: () => void }) {
   const [selected, setSelected] = useState<null | DayReport>(null);
+  const [selectedStat, setSelectedStat] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const insets = useSafeAreaInsets();
 
   const data = getMockHomeData();
 
+  if (selectedStat) {
+    return <StatDetailScreen statKey={selectedStat} onBack={() => setSelectedStat(null)} />;
+  }
+
   if (selected) {
-    return <DayDetailScreen day={selected.day} value={selected.value} level={selected.level} onBack={() => setSelected(null)} />;
+    return <DayDetailScreen day={selected} onBack={() => setSelected(null)} />;
   }
 
   const getAQIMessage = (level: AirLevel) => {
@@ -181,29 +187,39 @@ export default function HomeScreen({ onLogout }: { onLogout?: () => void }) {
           </Pressable>
         </View>
 
-        <LinearGradient
-          colors={['#0F3E6B', '#1A6CB3', '#2980CC']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.scoreCard}
-        >
-          <View style={styles.scoreTop}>
-            <Text style={styles.scoreLabel}>POLLUTION SCORE</Text>
-            <Ionicons name="cloud-outline" size={36} color="#FFFFFF" />
-          </View>
-          <Text style={styles.scoreValue}>{data.score.toFixed(1)}<Text style={styles.scoreUnit}>µg/m³</Text></Text>
-          <View style={styles.scoreBottom}>
-            <View style={[styles.badge, { backgroundColor: levelColor[data.level] }]}>
-              <Text style={styles.badgeText}>{levelLabel[data.level]}</Text>
+        <Pressable onPress={() => setSelectedStat('pm25')}>
+          <LinearGradient
+            colors={['#0F3E6B', '#1A6CB3', '#2980CC']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.scoreCard}
+          >
+            <View style={styles.scoreTop}>
+              <Text style={styles.scoreLabel}>POLLUTION SCORE</Text>
+              <Ionicons name="cloud-outline" size={36} color="#FFFFFF" />
             </View>
-            <Text style={styles.scoreMessage}>{aqiMessage}</Text>
-          </View>
-        </LinearGradient>
+            <Text style={styles.pm25Text}>PM2.5</Text>
+            <Text style={styles.scoreValue}>{data.score.toFixed(1)}<Text style={styles.scoreUnit}> µg/m³</Text></Text>
+            <View style={styles.scoreBottom}>
+              <View style={[styles.badge, { backgroundColor: levelColor[data.level] }]}>
+                <Text style={styles.badgeText}>{levelLabel[data.level]}</Text>
+              </View>
+              <Text style={styles.scoreMessage}>{aqiMessage}</Text>
+            </View>
+          </LinearGradient>
+        </Pressable>
+
+        <View style={styles.sensorsHeader}>
+          <Text style={styles.sensorsTitle}>Average</Text>
+        </View>
 
         <View style={styles.statsRow}>
-          <StatBox value={`${data.temp}°C`} label="Temperature" />
-          <StatBox value={`${data.humidity}%`} label="Humidity" />
-          <StatBox value={`${data.rainfall}mm`} label="Rainfall" />
+          <StatBox value={`${data.temp} °C`} label="Temperature" onPress={() => setSelectedStat('temp')} />
+          <StatBox value={`${data.humidity} %`} label="Relative Humidity" onPress={() => setSelectedStat('humidity')} />
+          <StatBox value={`${data.co2} ppm`} label="Carbon Dioxide (CO₂)" onPress={() => setSelectedStat('co2')} />
+          <StatBox value={`${data.co} ppm`} label="Carbon Monoxide (CO)" onPress={() => setSelectedStat('co')} />
+          <StatBox value={`${data.voc}`} label="Volatile Organic Compounds (VOC)" onPress={() => setSelectedStat('voc')} />
+          <StatBox value={`${data.nox}`} label="Nitrogen Oxides (NOₓ)" onPress={() => setSelectedStat('nox')} />
         </View>
 
         {ventilationAdvice && (
@@ -238,12 +254,13 @@ export default function HomeScreen({ onLogout }: { onLogout?: () => void }) {
   );
 }
 
-function StatBox({ value, label }: { value: string; label: string }) {
+function StatBox({ value, label, sub, onPress }: { value: string; label: string; sub?: string; onPress?: () => void }) {
   return (
-    <View style={styles.statBox}>
+    <Pressable onPress={onPress} style={styles.statBox}>
+      {sub && <Text style={styles.statSub}>{sub}</Text>}
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -355,28 +372,45 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins_400Regular',
     color: 'rgba(255,255,255,0.85)',
   },
+  pm25Text: {
+    fontSize: 16,
+    fontFamily: 'Poppins_600SemiBold',
+    color: '#FFFFFFCC',
+  },
 
   statsRow: {
     flexDirection: 'row',
-    gap: 10,
+    flexWrap: 'wrap',
+    gap: 12,
     marginBottom: 14,
   },
   statBox: {
-    flex: 1,
+    width: '31%',
+    flexGrow: 1,
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     borderWidth: 1,
     borderColor: palette.border,
-    paddingVertical: 12,
+    paddingVertical: 20,
+    paddingHorizontal: 6,
+    minHeight: 84,
   },
   statValue: {
-    fontSize: 16,
+    fontSize: 18,
     fontFamily: 'Poppins_600SemiBold',
     color: palette.textStrong,
   },
   statLabel: {
-    fontSize: 10,
+    fontSize: 9,
+    fontFamily: 'Poppins_400Regular',
+    color: palette.text,
+    marginTop: 6,
+    textAlign: 'center',
+    lineHeight: 11,
+  },
+  statSub: {
+    fontSize: 9,
     fontFamily: 'Poppins_400Regular',
     color: palette.text,
     marginTop: 2,
@@ -406,6 +440,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 10,
+  },
+  sensorsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  sensorsTitle: {
+    fontSize: 16,
+    fontFamily: 'Poppins_700Bold',
+    color: palette.textStrong,
   },
   weeklyTitle: {
     fontSize: 16,

@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { palette } from '../styles/palette';
-import EditThresholdsScreen from './EditThresholdsScreen';
 import { getDeviceInfo, getThresholds, appVersion, buildNumber } from '../data';
 
 function ThresholdRow({ label, range, value }: { label: string; range: string; value: number }) {
@@ -27,12 +26,9 @@ export default function SettingsScreen() {
   const [pushAlerts, setPushAlerts] = useState(true);
   const [dailySummary, setDailySummary] = useState(true);
   const [autoPurifier, setAutoPurifier] = useState(false);
-  const [editing, setEditing] = useState(false);
 
   const device = getDeviceInfo();
   const thresholds = getThresholds();
-
-  if (editing) return <EditThresholdsScreen onBack={() => setEditing(false)} />;
 
   return (
     <View style={styles.screen}>
@@ -69,9 +65,6 @@ export default function SettingsScreen() {
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Alert thresholds</Text>
-          <Pressable onPress={() => setEditing(true)}>
-            <Text style={styles.editText}>Edit</Text>
-          </Pressable>
         </View>
 
         <View style={styles.card}>

@@ -9,12 +9,12 @@ export const mockDevice: DeviceInfo = {
   lastSeen: new Date().toISOString(),
   location: 'EMB Cagayan Valley',
   sensors: [
-    { type: 'pm25', value: 12.2, unit: 'µg/m³', lastCalibrated: '2024-01-15', status: 'ok' },
-    { type: 'pm10', value: 18.5, unit: 'µg/m³', lastCalibrated: '2024-01-15', status: 'ok' },
-    { type: 'co2', value: 412, unit: 'ppm', lastCalibrated: '2024-01-10', status: 'ok' },
-    { type: 'voc', value: 45, unit: 'ppb', lastCalibrated: '2024-01-10', status: 'ok' },
-    { type: 'temperature', value: 30, unit: '°C', lastCalibrated: '2024-01-20', status: 'ok' },
-    { type: 'humidity', value: 61, unit: '%', lastCalibrated: '2024-01-20', status: 'ok' },
+    { type: 'temperature', value: 28, unit: '°C', lastCalibrated: '2024-01-20', status: 'ok' },
+    { type: 'humidity', value: 62, unit: '%RH', lastCalibrated: '2024-01-20', status: 'ok' },
+    { type: 'co2', value: 850, unit: 'ppm', lastCalibrated: '2024-01-10', status: 'ok' },
+    { type: 'co', value: 2.4, unit: 'ppm', lastCalibrated: '2024-01-10', status: 'ok' },
+    { type: 'voc', value: 85, unit: 'idx', lastCalibrated: '2024-01-10', status: 'ok' },
+    { type: 'nox', value: 22, unit: 'idx', lastCalibrated: '2024-01-10', status: 'ok' },
   ],
 };
 

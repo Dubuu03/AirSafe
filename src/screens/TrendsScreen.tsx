@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { useState, useRef, useCallback } from 'react';
+import { PanResponder, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Path, Line } from 'react-native-svg';
+import Svg, { Path, Line, Circle } from 'react-native-svg';
 import { palette } from '../styles/palette';
 import { getTrendData, getXLabels } from '../data';
 
@@ -13,21 +13,86 @@ const timeRanges: { key: TimeRange; label: string }[] = [
   { key: 'month', label: 'Month' },
 ];
 
-const legend = [
-  { color: '#2E7DC9', label: 'CO₂' },
-  { color: '#E8B93F', label: 'PM2.5' },
-  { color: '#A78BFA', label: 'VOC' },
+interface MeasurementCard {
+  key: string;
+  label: string;
+  unit: string;
+  color: string;
+  data: (t: ReturnType<typeof getTrendData>) => number[];
+  summary: (t: ReturnType<typeof getTrendData>) => { avg: number; min: number; max: number };
+}
+
+const measurements: MeasurementCard[] = [
+  {
+    key: 'pm25',
+    label: 'PM2.5',
+    unit: 'µg/m³',
+    color: '#2980CC',
+    data: (t) => t.pm25.map((d) => d.y),
+    summary: (t) => t.summary.pm25,
+  },
+  {
+    key: 'temp',
+    label: 'Temperature',
+    unit: '°C',
+    color: '#3FB65F',
+    data: (t) => t.temp.map((d) => d.y),
+    summary: (t) => t.summary.temp,
+  },
+  {
+    key: 'humidity',
+    label: 'Humidity',
+    unit: '% RH',
+    color: '#06B6D4',
+    data: (t) => t.humidity.map((d) => d.y),
+    summary: (t) => t.summary.humidity,
+  },
+  {
+    key: 'co2',
+    label: 'CO₂',
+    unit: 'ppm',
+    color: '#14B8A6',
+    data: (t) => t.co2.map((d) => d.y),
+    summary: (t) => t.summary.co2,
+  },
+  {
+    key: 'co',
+    label: 'CO',
+    unit: 'ppm',
+    color: '#E8703F',
+    data: (t) => t.co.map((d) => d.y),
+    summary: (t) => t.summary.co,
+  },
+  {
+    key: 'voc',
+    label: 'Volatile Organic Compounds (VOC)',
+    unit: '',
+    color: '#A78BFA',
+    data: (t) => t.voc.map((d) => d.y),
+    summary: (t) => t.summary.voc,
+  },
+  {
+    key: 'nox',
+    label: 'Nitrogen Oxides (NOₓ)',
+    unit: '',
+    color: '#D33F3F',
+    data: (t) => t.nox.map((d) => d.y),
+    summary: (t) => t.summary.nox,
+  },
 ];
 
-function toPointsNormalized(data: number[], w: number, h: number, padX: number, padTop: number, padBot: number, vOffset: number, vScale: number) {
+function toPointsNormalized(data: number[], w: number, h: number, padX: number, padTop: number, padBot: number) {
   const innerW = w - padX * 2;
   const innerH = h - padTop - padBot;
+  if (data.length === 0) return [];
   const min = Math.min(...data);
   const max = Math.max(...data);
   const range = max - min || 1;
   return data.map((v, i) => ({
     x: padX + (i / (data.length - 1)) * innerW,
-    y: padTop + (1 - (v - min) / range) * innerH * vScale + innerH * vOffset,
+    y: padTop + (1 - (v - min) / range) * innerH,
+    rawY: v,
+    index: i,
   }));
 }
 
@@ -49,25 +114,95 @@ function smoothPath(pts: { x: number; y: number }[]) {
   return d;
 }
 
-function Chart({ co2, pm25, voc, w, h }: { co2: number[]; pm25: number[]; voc: number[]; w: number; h: number }) {
+function formatValue(val: number, unit: string): string {
+  if (unit === 'ppm' || unit === 'µg/m³' || unit === 'Index' || unit === '% RH') return Math.round(val).toString();
+  return val.toFixed(1);
+}
+
+function ChartWithTooltip({
+  data, w, h, color, unit,
+}: {
+  data: number[]; w: number; h: number; color: string; unit: string;
+}) {
+  const [tooltipIdx, setTooltipIdx] = useState<number | null>(null);
   const padX = 8;
   const padTop = 8;
   const padBot = 8;
+  const pts = toPointsNormalized(data, w, h, padX, padTop, padBot);
+  const d = smoothPath(pts);
   const innerH = h - padTop - padBot;
-  const dCO2 = smoothPath(toPointsNormalized(co2, w, h, padX, padTop, padBot, 0.12, 0.32));
-  const dPM = smoothPath(toPointsNormalized(pm25, w, h, padX, padTop, padBot, 0.34, 0.32));
-  const dVOC = smoothPath(toPointsNormalized(voc, w, h, padX, padTop, padBot, 0.56, 0.32));
+
+  const getIndex = useCallback((x: number) => {
+    if (pts.length === 0) return 0;
+    const innerW = w - padX * 2;
+    const ratio = Math.max(0, Math.min(1, (x - padX) / innerW));
+    return Math.max(0, Math.min(pts.length - 1, Math.round(ratio * (pts.length - 1))));
+  }, [pts, w]);
+
+  const responder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (e) => {
+        setTooltipIdx(getIndex(e.nativeEvent.locationX));
+      },
+      onPanResponderMove: (e) => {
+        setTooltipIdx(getIndex(e.nativeEvent.locationX));
+      },
+      onPanResponderRelease: () => {
+        setTooltipIdx(null);
+      },
+      onPanResponderTerminate: () => {
+        setTooltipIdx(null);
+      },
+    })
+  ).current;
+
+  const tipPt = tooltipIdx !== null && pts[tooltipIdx] ? pts[tooltipIdx] : null;
+
   return (
-    <Svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ backgroundColor: '#FFFFFF' }}>
-      {[0.25, 0.5, 0.75].map((frac) => (
-        <Line key={frac} x1={padX} y1={padTop + frac * innerH} x2={w - padX} y2={padTop + frac * innerH} stroke="#E8ECF0" strokeWidth={1} strokeDasharray="6,6" strokeOpacity={0.9} />
-      ))}
-      <Path d={dVOC} stroke="#A78BFA" strokeWidth={1.7} fill="none" strokeDasharray="5,4" strokeLinecap="round" />
-      <Path d={dPM} stroke="#E8B93F" strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-      <Path d={dCO2} stroke="#2E7DC9" strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
+    <View style={{ width: w, height: h + 24 }}>
+      <View style={{ width: w, height: h }} {...responder.panHandlers}>
+        <Svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ backgroundColor: '#FFFFFF' }}>
+          {[0.25, 0.5, 0.75].map((frac) => (
+            <Line key={frac} x1={padX} y1={padTop + frac * innerH} x2={w - padX} y2={padTop + frac * innerH} stroke="#E8ECF0" strokeWidth={1} strokeDasharray="6,6" strokeOpacity={0.9} />
+          ))}
+          {d ? <Path d={d} stroke={color} strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" /> : null}
+          {tipPt && (
+            <>
+              <Line x1={tipPt.x} y1={padTop} x2={tipPt.x} y2={h - padBot} stroke={color} strokeWidth={1} strokeDasharray="4,3" strokeOpacity={0.5} />
+              <Circle cx={tipPt.x} cy={tipPt.y} r={5} fill={color} />
+              <Circle cx={tipPt.x} cy={tipPt.y} r={3} fill="#FFFFFF" />
+            </>
+          )}
+        </Svg>
+      </View>
+      {tipPt && (
+        <View style={[tooltipStyles.tooltip, { left: Math.max(0, Math.min(w - 80, tipPt.x - 40)) }]}>
+          <Text style={tooltipStyles.tooltipText}>{formatValue(tipPt.rawY, unit)}</Text>
+        </View>
+      )}
+    </View>
   );
 }
+
+const tooltipStyles = StyleSheet.create({
+  tooltip: {
+    position: 'absolute',
+    top: 0,
+    backgroundColor: palette.ink,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    minWidth: 50,
+    alignItems: 'center',
+  },
+  tooltipText: {
+    fontSize: 12,
+    fontFamily: 'Poppins_600SemiBold',
+    color: '#FFFFFF',
+  },
+});
 
 export default function TrendsScreen() {
   const [range, setRange] = useState<TimeRange>('day');
@@ -77,55 +212,6 @@ export default function TrendsScreen() {
 
   const trendData = getTrendData(range);
   const xLabels = getXLabels(range);
-
-  const co2Values = trendData.co2.map((d) => d.y);
-  const pm25Values = trendData.pm25.map((d) => d.y);
-  const vocValues = trendData.voc.map((d) => d.y);
-
-  const summaryRows = [
-    {
-      label: 'CO₂ average',
-      value: `${Math.round(trendData.summary.co2.avg)} ppm`,
-      sub: 'Sensirion SCD41',
-      peak: `peak ${Math.round(trendData.summary.co2.max)}`,
-      color: palette.textStrong,
-    },
-    {
-      label: 'PM2.5 average',
-      value: `${trendData.summary.pm25.avg.toFixed(1)} µg/m³`,
-      sub: 'PMS5003',
-      peak: `peak ${trendData.summary.pm25.max.toFixed(1)}`,
-      color: palette.textStrong,
-    },
-    {
-      label: 'VOC average',
-      value: `${Math.round(trendData.summary.voc.avg)} ppb`,
-      sub: 'SGP41 · index',
-      peak: `peak ${Math.round(trendData.summary.voc.max)}`,
-      color: palette.textStrong,
-    },
-    {
-      label: 'Good-air hours',
-      value: `${((trendData.pm25.filter((v) => v.y <= 25).length / trendData.pm25.length) * 24).toFixed(1)} hrs`,
-      sub: '% of monitored day',
-      peak: `${((trendData.pm25.filter((v) => v.y <= 25).length / trendData.pm25.length) * 100).toFixed(1)}%`,
-      color: palette.good,
-    },
-    {
-      label: 'CO₂ max',
-      value: `${Math.round(trendData.summary.co2.max)} ppm`,
-      sub: 'Highest today',
-      peak: `avg ${Math.round(trendData.summary.co2.avg)}`,
-      color: palette.unhealthy,
-    },
-    {
-      label: 'PM2.5 exposure',
-      value: `${(trendData.summary.pm25.avg * 24).toFixed(1)} µg·h/m³`,
-      sub: 'Cumulative',
-      peak: `min ${trendData.summary.pm25.min.toFixed(1)}`,
-      color: palette.textStrong,
-    },
-  ];
 
   return (
     <View style={styles.screen}>
@@ -141,46 +227,48 @@ export default function TrendsScreen() {
           ))}
         </View>
 
-        <View style={styles.chartCard}>
-          <View style={styles.legendRow}>
-            {legend.map((l) => (
-              <View key={l.label} style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: l.color }]} />
-                <Text style={styles.legendLabel}>{l.label}</Text>
+        {measurements.map((m) => {
+          const values = m.data(trendData);
+          const s = m.summary(trendData);
+          return (
+            <View key={m.key} style={styles.chartCard}>
+              <View style={styles.cardHeader}>
+                <View style={[styles.cardDot, { backgroundColor: m.color }]} />
+                <Text style={styles.cardTitle}>{m.label}</Text>
+                {m.unit ? <Text style={styles.cardUnit}>{m.unit}</Text> : null}
               </View>
-            ))}
-          </View>
 
-          <View style={styles.chartWrap}>
-            <Chart co2={co2Values} pm25={pm25Values} voc={vocValues} w={chartW} h={190} />
-          </View>
+              <ChartWithTooltip
+                data={values}
+                w={chartW}
+                h={160}
+                color={m.color}
+                unit={m.unit}
+              />
 
-          <View style={styles.xAxis}>
-            {xLabels.map((label, idx) => (
-              <Text key={`${label}-${idx}`} style={styles.xAxisLabel}>{label}</Text>
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.summaryHeader}>
-          <Text style={styles.summaryTitle}>Today&apos;s summary</Text>
-          <Text style={styles.summaryDate}>{new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</Text>
-        </View>
-
-        <View style={styles.summaryCard}>
-          {summaryRows.map((row, i) => (
-            <View key={row.label} style={[styles.summaryRow, i < summaryRows.length - 1 && styles.summaryBorder]}>
-              <View style={styles.summaryLeft}>
-                <Text style={styles.summaryLabel}>{row.label}</Text>
-                <Text style={styles.summarySub}>{row.sub}</Text>
+              <View style={styles.xAxis}>
+                {xLabels.map((label, idx) => (
+                  <Text key={`${label}-${idx}`} style={styles.xAxisLabel}>{label}</Text>
+                ))}
               </View>
-              <View style={styles.summaryRight}>
-                <Text style={[styles.summaryValue, { color: row.color }]}>{row.value}</Text>
-                <Text style={styles.summaryPeak}>{row.peak}</Text>
+
+              <View style={styles.summaryRow}>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryValue}>{m.key === 'co' || m.key === 'temp' || m.key === 'humidity' ? s.avg.toFixed(1) : Math.round(s.avg)}</Text>
+                  <Text style={styles.summaryLabel}>avg</Text>
+                </View>
+                <View style={styles.summaryItem}>
+                  <Text style={[styles.summaryValue, { color: palette.good }]}>{m.key === 'co' || m.key === 'temp' || m.key === 'humidity' ? s.min.toFixed(1) : Math.round(s.min)}</Text>
+                  <Text style={styles.summaryLabel}>min</Text>
+                </View>
+                <View style={styles.summaryItem}>
+                  <Text style={[styles.summaryValue, { color: palette.unhealthy }]}>{m.key === 'co' || m.key === 'temp' || m.key === 'humidity' ? s.max.toFixed(1) : Math.round(s.max)}</Text>
+                  <Text style={styles.summaryLabel}>max</Text>
+                </View>
               </View>
             </View>
-          ))}
-        </View>
+          );
+        })}
       </ScrollView>
     </View>
   );
@@ -197,35 +285,41 @@ const styles = StyleSheet.create({
   pillActive: { backgroundColor: palette.ink, borderColor: palette.ink },
   pillText: { fontSize: 13, fontFamily: 'Poppins_400Regular', color: palette.textStrong },
   pillTextActive: { fontFamily: 'Poppins_600SemiBold', color: '#FFFFFF' },
+
   chartCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     borderWidth: 1,
     borderColor: palette.border,
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
-    marginBottom: 18,
+    paddingTop: 14,
+    paddingBottom: 14,
+    marginBottom: 14,
     width: '100%',
     overflow: 'hidden',
   },
-  legendRow: { flexDirection: 'row', gap: 16, marginBottom: 10, alignSelf: 'flex-start' },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendLabel: { fontSize: 11, fontFamily: 'Poppins_400Regular', color: palette.text },
-  chartWrap: { width: '100%', alignItems: 'center', justifyContent: 'center', minHeight: 190 },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  cardDot: { width: 8, height: 8, borderRadius: 4 },
+  cardTitle: { fontSize: 14, fontFamily: 'Poppins_600SemiBold', color: palette.textStrong },
+  cardUnit: { fontSize: 11, fontFamily: 'Poppins_400Regular', color: palette.text },
+
   xAxis: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginTop: 8, paddingHorizontal: 4 },
   xAxisLabel: { fontSize: 9, fontFamily: 'Poppins_400Regular', color: palette.text },
-  summaryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 },
-  summaryTitle: { fontSize: 16, fontFamily: 'Poppins_700Bold', color: palette.textStrong },
-  summaryDate: { fontSize: 12, fontFamily: 'Poppins_400Regular', color: palette.text },
-  summaryCard: { backgroundColor: '#FFFFFF', borderRadius: 20, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 18 },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 15 },
-  summaryBorder: { borderBottomWidth: 1, borderBottomColor: palette.border },
-  summaryLeft: { gap: 2 },
-  summaryLabel: { fontSize: 14, fontFamily: 'Poppins_600SemiBold', color: palette.textStrong },
-  summarySub: { fontSize: 11, fontFamily: 'Poppins_400Regular', color: palette.text },
-  summaryRight: { alignItems: 'flex-end', gap: 2 },
-  summaryValue: { fontSize: 14, fontFamily: 'Poppins_600SemiBold' },
-  summaryPeak: { fontSize: 11, fontFamily: 'Poppins_400Regular', color: palette.text },
+
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: palette.border,
+  },
+  summaryItem: { alignItems: 'center' },
+  summaryValue: { fontSize: 14, fontFamily: 'Poppins_600SemiBold', color: palette.textStrong },
+  summaryLabel: { fontSize: 10, fontFamily: 'Poppins_400Regular', color: palette.text, marginTop: 2 },
 });
